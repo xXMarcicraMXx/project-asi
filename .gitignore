@@ -1,0 +1,31 @@
+# Secrets — never committed
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Generated output
+output/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Alembic (introduced Sprint 3)
+# db/migrations/versions/  ← uncomment when Alembic is added
