@@ -1,0 +1,26 @@
+content_type: journal_article
+
+output:
+  format: markdown
+  min_words: 600
+  max_words: 1200
+
+agent_chain:
+  - research_agent
+  - writer_agent
+  - editor_agent
+
+writer_instructions: |
+  Write a formal journal article using markdown section headers (##).
+  Structure: introduction, 3–4 body paragraphs, conclusion.
+  Cite sources inline as [Source Name].
+
+editor_criteria:
+  - Word count is between 600 and 1200 words
+  - Regional editorial voice is consistent throughout
+  - No invented statistics or fabricated quotes
+  - Headline is specific, not generic
+  - Article reads as a standalone publishable piece
+
+pinecone_filter:
+  document_type: persona_guideline
