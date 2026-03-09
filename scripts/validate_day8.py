@@ -43,7 +43,7 @@ async def main() -> None:
     print(f"  {len(articles)} article(s) fetched.\n")
 
     async with AsyncSessionLocal() as session:
-        job = Job(topic=topic, content_type="journal_article", regions=[region_id])
+        job = Job(project="asi", topic=topic, content_type="journal_article", regions=[region_id])
         session.add(job)
         await session.flush()
 
