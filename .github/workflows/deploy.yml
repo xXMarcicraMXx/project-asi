@@ -15,6 +15,5 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            cd ~/n8n-asi
-            git pull origin main
-            sudo docker compose up -d --build asi-app
+            cd ~/n8n-asi/asi && git pull origin main
+            cd ~/n8n-asi && sudo docker compose up -d --build asi-app
