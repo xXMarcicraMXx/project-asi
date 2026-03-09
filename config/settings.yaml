@@ -1,0 +1,18 @@
+models:
+  writer: claude-sonnet-4-20250514
+  parser: claude-haiku-4-5-20251001
+
+pinecone:
+  index_name: asi-personas
+  top_k: 2
+
+cost:
+  max_usd_per_job: 2.00
+
+logging:
+  level: INFO
+  format: json
+
+scheduler:
+  cron: "0 7 * * *"
+  default_regions: [EU, LATAM, SEA, NA]
