@@ -86,12 +86,16 @@ async def main(topic: str, output_dir: str | None) -> None:
         )
 
         # ── Query DB audit trail ─────────────────────────────────────────────
-        job_row = await session.get(Job, payload.id)
+        job_row_result = await session.execute(
+            select(Job).where(Job.id == payload.id, Job.project == "asi")
+        )
+        job_row = job_row_result.scalar_one_or_none()
 
         pieces_result = await session.execute(
             select(ContentPiece)
             .join(Brief, ContentPiece.brief_id == Brief.id)
-            .where(Brief.job_id == payload.id)
+            .join(Job, Brief.job_id == Job.id)
+            .where(Brief.job_id == payload.id, Job.project == "asi")
         )
         pieces = pieces_result.scalars().all()
         piece = pieces[0] if pieces else None
@@ -100,7 +104,8 @@ async def main(topic: str, output_dir: str | None) -> None:
             select(AgentRun)
             .join(ContentPiece, AgentRun.content_piece_id == ContentPiece.id)
             .join(Brief, ContentPiece.brief_id == Brief.id)
-            .where(Brief.job_id == payload.id)
+            .join(Job, Brief.job_id == Job.id)
+            .where(Brief.job_id == payload.id, Job.project == "asi")
         )
         runs = runs_result.scalars().all()
 
@@ -108,7 +113,8 @@ async def main(topic: str, output_dir: str | None) -> None:
             select(FeedbackLoop)
             .join(ContentPiece, FeedbackLoop.content_piece_id == ContentPiece.id)
             .join(Brief, ContentPiece.brief_id == Brief.id)
-            .where(Brief.job_id == payload.id)
+            .join(Job, Brief.job_id == Job.id)
+            .where(Brief.job_id == payload.id, Job.project == "asi")
         )
         loops = loops_result.scalars().all()
 

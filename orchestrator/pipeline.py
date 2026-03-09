@@ -43,6 +43,7 @@ async def run_pipeline(
     }
     job = Job(
         id=payload.id,
+        project="asi",
         topic=payload.topic,
         content_type=payload.content_type,
         regions=payload.regions,
@@ -164,7 +165,8 @@ async def query_cost_report(
         )
         .join(ContentPiece, AgentRun.content_piece_id == ContentPiece.id)
         .join(Brief, ContentPiece.brief_id == Brief.id)
-        .where(Brief.job_id == job_id)
+        .join(Job, Brief.job_id == Job.id)
+        .where(Brief.job_id == job_id, Job.project == "asi")
         .order_by(ContentPiece.region, AgentRun.agent_name, AgentRun.iteration)
     )
     result = await session.execute(stmt)

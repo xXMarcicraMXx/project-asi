@@ -37,7 +37,7 @@ async def main() -> None:
 
     async with AsyncSessionLocal() as session:
         # Minimal FK chain for agent_runs write
-        job = Job(topic=topic, content_type="journal_article", regions=["EU"])
+        job = Job(project="asi", topic=topic, content_type="journal_article", regions=["EU"])
         session.add(job)
         await session.flush()
 

@@ -1,6 +1,8 @@
--- ASI Database Schema — Sprint 1
--- Run directly on VPS Postgres (no Alembic until Sprint 3)
+-- ASI Database Schema — v4 (with project discriminator)
+-- Run directly on VPS Postgres for fresh installs (no Alembic until Sprint 3)
 -- Usage: psql $DATABASE_URL -f db/schema.sql
+--
+-- Existing installs: run db/migrations/001_add_project_discriminator.sql instead
 
 -- Enable UUID generation
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -10,6 +12,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS jobs (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project         VARCHAR(32) NOT NULL DEFAULT 'asi', -- 'asi' | 'oracle' — always filter by this
     topic           TEXT NOT NULL,
     content_type    VARCHAR(64) NOT NULL,
     regions         TEXT[] NOT NULL,
@@ -104,5 +107,6 @@ CREATE INDEX IF NOT EXISTS idx_briefs_job_id ON briefs(job_id);
 CREATE INDEX IF NOT EXISTS idx_content_pieces_brief_id ON content_pieces(brief_id);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_content_piece_id ON agent_runs(content_piece_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_loops_content_piece_id ON feedback_loops(content_piece_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_project ON jobs(project);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_content_pieces_status ON content_pieces(status);
