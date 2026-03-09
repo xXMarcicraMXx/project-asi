@@ -84,7 +84,7 @@ class ContentPiece(Base):
     word_count = Column(Integer, nullable=True)
     iteration_count = Column(Integer, default=0)
     status = Column(String(32), default="draft")
-    metadata = Column(JSONB, nullable=True)                  # flexible: source_urls, tags, etc.
+    extra = Column("metadata", JSONB, nullable=True)         # flexible: source_urls, tags, etc.
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
 
