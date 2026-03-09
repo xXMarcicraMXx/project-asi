@@ -70,52 +70,63 @@ async def run_pipeline(
     drafts: list[ArticleDraft] = []
     job_cost_so_far = 0.0
 
-    for region_id in payload.regions:
-        region_config = load_region(region_id)
-        logger.info(
-            "region_started",
-            extra={"region": region_id, "display_name": region_config.display_name},
+    try:
+        for region_id in payload.regions:
+            region_config = load_region(region_id)
+            logger.info(
+                "region_started",
+                extra={"region": region_id, "display_name": region_config.display_name},
+            )
+
+            brief_row = Brief(job_id=job.id)
+            session.add(brief_row)
+            await session.flush()
+
+            piece = ContentPiece(
+                brief_id=brief_row.id,
+                region=region_id,
+                content_type="regional_article",
+                status="draft",
+            )
+            session.add(piece)
+            await session.flush()
+
+            chain = AgentChain()
+            draft, chain_cost = await chain.run(
+                payload.topic,
+                articles,
+                region_config,
+                ct_config,
+                session=session,
+                content_piece_id=piece.id,
+                job_cost_so_far=job_cost_so_far,
+            )
+            job_cost_so_far += chain_cost
+
+            await session.refresh(piece)
+            logger.info(
+                "region_complete",
+                extra={
+                    "region": region_id,
+                    "status": piece.status,
+                    "words": draft.word_count,
+                    "headline": draft.headline,
+                    "chain_cost_usd": round(chain_cost, 6),
+                    "job_cost_so_far_usd": round(job_cost_so_far, 6),
+                },
+            )
+
+            drafts.append(draft)
+
+    except Exception:
+        job.status = "failed"
+        job.completed_at = datetime.utcnow()
+        await session.commit()
+        logger.exception(
+            "job_failed",
+            extra={"job_id": str(payload.id), "cost_before_failure_usd": round(job_cost_so_far, 6)},
         )
-
-        brief_row = Brief(job_id=job.id)
-        session.add(brief_row)
-        await session.flush()
-
-        piece = ContentPiece(
-            brief_id=brief_row.id,
-            region=region_id,
-            content_type="regional_article",
-            status="draft",
-        )
-        session.add(piece)
-        await session.flush()
-
-        chain = AgentChain()
-        draft, chain_cost = await chain.run(
-            payload.topic,
-            articles,
-            region_config,
-            ct_config,
-            session=session,
-            content_piece_id=piece.id,
-            job_cost_so_far=job_cost_so_far,
-        )
-        job_cost_so_far += chain_cost
-
-        await session.refresh(piece)
-        logger.info(
-            "region_complete",
-            extra={
-                "region": region_id,
-                "status": piece.status,
-                "words": draft.word_count,
-                "headline": draft.headline,
-                "chain_cost_usd": round(chain_cost, 6),
-                "job_cost_so_far_usd": round(job_cost_so_far, 6),
-            },
-        )
-
-        drafts.append(draft)
+        raise
 
     job.status = "complete"
     job.completed_at = datetime.utcnow()
