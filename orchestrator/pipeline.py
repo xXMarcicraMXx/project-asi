@@ -9,16 +9,20 @@ Each region runs sequentially (Sprint 2). Upgraded to asyncio.gather in Sprint 3
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents.chain import AgentChain
 from config import load_content_type, load_region, load_settings
 from data_sources.base_source import BaseSource
 from data_sources.rss_source import ManualSource, RSSSource
-from db.models import Brief, ContentPiece, Job
+from db.models import AgentRun, Brief, ContentPiece, Job
 from orchestrator.job_model import ArticleDraft, JobPayload
+
+logger = logging.getLogger(__name__)
 
 
 async def run_pipeline(
@@ -48,17 +52,30 @@ async def run_pipeline(
     session.add(job)
     await session.flush()
 
+    logger.info(
+        "job_started",
+        extra={
+            "job_id": str(payload.id),
+            "topic": payload.topic,
+            "regions": payload.regions,
+            "content_type": payload.content_type,
+        },
+    )
+
     source: BaseSource = ManualSource(source_text) if source_text else RSSSource()
-    print(f"Fetching sources for: '{payload.topic}'...")
+    logger.info("fetching_sources", extra={"topic": payload.topic})
     articles = await source.fetch(payload.topic)
-    print(f"  {len(articles)} article(s) fetched.")
+    logger.info("sources_fetched", extra={"count": len(articles)})
 
     drafts: list[ArticleDraft] = []
     job_cost_so_far = 0.0
 
     for region_id in payload.regions:
         region_config = load_region(region_id)
-        print(f"\n[{region_config.display_name}] Starting agent chain...")
+        logger.info(
+            "region_started",
+            extra={"region": region_id, "display_name": region_config.display_name},
+        )
 
         brief_row = Brief(job_id=job.id)
         session.add(brief_row)
@@ -74,7 +91,7 @@ async def run_pipeline(
         await session.flush()
 
         chain = AgentChain()
-        draft = await chain.run(
+        draft, chain_cost = await chain.run(
             payload.topic,
             articles,
             region_config,
@@ -83,9 +100,20 @@ async def run_pipeline(
             content_piece_id=piece.id,
             job_cost_so_far=job_cost_so_far,
         )
+        job_cost_so_far += chain_cost
 
         await session.refresh(piece)
-        print(f"[{region_config.display_name}] {piece.status.upper()} — {draft.word_count} words — '{draft.headline}'")
+        logger.info(
+            "region_complete",
+            extra={
+                "region": region_id,
+                "status": piece.status,
+                "words": draft.word_count,
+                "headline": draft.headline,
+                "chain_cost_usd": round(chain_cost, 6),
+                "job_cost_so_far_usd": round(job_cost_so_far, 6),
+            },
+        )
 
         drafts.append(draft)
 
@@ -93,4 +121,40 @@ async def run_pipeline(
     job.completed_at = datetime.utcnow()
     await session.commit()
 
+    logger.info(
+        "job_complete",
+        extra={
+            "job_id": str(payload.id),
+            "regions": len(drafts),
+            "total_cost_usd": round(job_cost_so_far, 6),
+        },
+    )
+
     return drafts
+
+
+async def query_cost_report(
+    session: AsyncSession,
+    job_id: object,
+) -> list[dict]:
+    """
+    Return per-agent token and cost totals for a completed job.
+    Queries agent_runs joined through content_pieces → briefs → jobs.
+    """
+    stmt = (
+        select(
+            AgentRun.agent_name,
+            AgentRun.iteration,
+            AgentRun.input_tokens,
+            AgentRun.output_tokens,
+            AgentRun.cost_usd,
+            AgentRun.duration_ms,
+            ContentPiece.region,
+        )
+        .join(ContentPiece, AgentRun.content_piece_id == ContentPiece.id)
+        .join(Brief, ContentPiece.brief_id == Brief.id)
+        .where(Brief.job_id == job_id)
+        .order_by(ContentPiece.region, AgentRun.agent_name, AgentRun.iteration)
+    )
+    result = await session.execute(stmt)
+    return [row._asdict() for row in result.all()]

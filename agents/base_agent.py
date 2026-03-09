@@ -85,6 +85,11 @@ class BaseAgent(ABC):
             api_key=os.environ["ANTHROPIC_API_KEY"]
         )
         self._max_usd = float(os.environ.get("ASI_MAX_USD_PER_JOB", "2.00"))
+        # Updated after every successful run() call — callers use these to
+        # accumulate the running job cost and include it in cost reports.
+        self.last_call_cost: float = 0.0
+        self.last_call_input_tokens: int = 0
+        self.last_call_output_tokens: int = 0
 
     # ------------------------------------------------------------------
     # Public interface
@@ -115,6 +120,11 @@ class BaseAgent(ABC):
         input_tokens  = response.usage.input_tokens
         output_tokens = response.usage.output_tokens
         cost = _cost_usd(self.MODEL, input_tokens, output_tokens)
+
+        # Expose last-call stats so AgentChain can accumulate the running total.
+        self.last_call_cost = cost
+        self.last_call_input_tokens = input_tokens
+        self.last_call_output_tokens = output_tokens
 
         await self._log_run(
             session=session,
