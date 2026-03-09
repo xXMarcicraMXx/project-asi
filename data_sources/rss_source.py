@@ -37,12 +37,16 @@ from orchestrator.job_model import Article
 
 _DEFAULT_FEEDS = [
     "https://feeds.bbci.co.uk/news/rss.xml",
+    "https://feeds.bbci.co.uk/news/business/rss.xml",
+    "https://www.theguardian.com/business/economics/rss",
+    "https://www.theguardian.com/world/rss",
+    "https://feeds.npr.org/1017/rss.xml",          # NPR Business
     "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
 ]
 
 _TOP_N = int(os.environ.get("ASI_RSS_TOP_N", "8"))
 _FETCH_TIMEOUT = float(os.environ.get("ASI_FETCH_TIMEOUT", "10"))
-_MIN_BODY_CHARS = 200   # discard fetched pages shorter than this
+_MIN_BODY_CHARS = 100   # discard fetched pages shorter than this
 
 
 # ---------------------------------------------------------------------------
