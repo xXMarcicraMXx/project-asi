@@ -31,6 +31,7 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project = Column(String(32), nullable=False, default="asi")  # 'asi' | 'oracle'
     topic = Column(Text, nullable=False)
     content_type = Column(String(64), nullable=False)
     regions = Column(ARRAY(Text), nullable=False)
