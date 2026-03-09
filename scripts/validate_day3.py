@@ -27,7 +27,7 @@ load_dotenv()
 from sqlalchemy import select
 
 from agents.base_agent import BaseAgent
-from db.models import AgentRun
+from db.models import AgentRun, Brief, ContentPiece, Job
 from db.session import AsyncSessionLocal
 
 
@@ -51,15 +51,25 @@ class _PingAgent(BaseAgent):
 async def main() -> None:
     agent = _PingAgent()
 
-    # Use a fake content_piece_id — this is a validation run, not a real job
-    fake_piece_id = uuid.uuid4()
-
     async with AsyncSessionLocal() as session:
+        # Insert the required FK chain: job → brief → content_piece
+        job = Job(topic="validate_day3", content_type="journal_article", regions=["EU"])
+        session.add(job)
+        await session.flush()
+
+        brief = Brief(job_id=job.id)
+        session.add(brief)
+        await session.flush()
+
+        piece = ContentPiece(brief_id=brief.id, region="EU", content_type="regional_article")
+        session.add(piece)
+        await session.flush()
+
         print("Calling Claude Haiku via BaseAgent...")
         text = await agent.run(
             "Confirm readiness.",
             session=session,
-            content_piece_id=fake_piece_id,
+            content_piece_id=piece.id,
             iteration=1,
             job_cost_so_far=0.0,
         )
@@ -67,7 +77,7 @@ async def main() -> None:
 
         # Verify the agent_runs row was written
         result = await session.execute(
-            select(AgentRun).where(AgentRun.content_piece_id == fake_piece_id)
+            select(AgentRun).where(AgentRun.content_piece_id == piece.id)
         )
         row: AgentRun | None = result.scalar_one_or_none()
 
