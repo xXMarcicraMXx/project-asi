@@ -58,7 +58,7 @@ async def main() -> None:
         await session.flush()
 
         chain = AgentChain()
-        draft = await chain.run(
+        draft, chain_cost = await chain.run(
             topic, articles, region_config, ct_config,
             session=session,
             content_piece_id=piece.id,
@@ -79,6 +79,7 @@ async def main() -> None:
 
     print(f"Final draft: '{draft.headline}'")
     print(f"  word_count       : {draft.word_count}")
+    print(f"  chain_cost_usd   : ${chain_cost:.6f}")
     print(f"  content_piece    : status={piece.status}, iterations={piece.iteration_count}")
 
     print(f"\nEditor verdicts ({len(loops)}):")
