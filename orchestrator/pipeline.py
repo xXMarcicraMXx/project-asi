@@ -1,27 +1,28 @@
 """
-Straight-line pipeline — Day 5 smoke test implementation.
+Pipeline — orchestrates one full job across all requested regions.
 
 Flow:
-    CLI → load configs → fetch RSS → one Claude call → write to DB → return text
+    CLI → load configs → fetch RSS (once) → AgentChain per region → return drafts
 
-This is intentionally minimal. Sprint 2 (Days 6–8) replaces the single Claude
-call with the full ResearchAgent → WriterAgent → EditorAgent chain.
+Each region runs sequentially (Sprint 2). Upgraded to asyncio.gather in Sprint 3.
 """
 
 from __future__ import annotations
 
-import json
-import uuid
+import logging
 from datetime import datetime
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agents.chain import AgentChain
 from config import load_content_type, load_region, load_settings
 from data_sources.base_source import BaseSource
 from data_sources.rss_source import ManualSource, RSSSource
-from db.models import Brief, ContentPiece, Job
+from db.models import AgentRun, Brief, ContentPiece, Job
 from orchestrator.job_model import ArticleDraft, JobPayload
-from orchestrator.smoke_writer import SmokeWriterAgent
+
+logger = logging.getLogger(__name__)
 
 
 async def run_pipeline(
@@ -30,13 +31,12 @@ async def run_pipeline(
     source_text: str | None = None,
 ) -> list[ArticleDraft]:
     """
-    Run the smoke-test pipeline for every region in the payload.
+    Run the full agent chain for every region in the payload.
     Returns one ArticleDraft per region.
     """
     settings = load_settings()
     ct_config = load_content_type(payload.content_type)
 
-    # Persist job row with full config snapshot
     config_snapshot = {
         "settings": settings.model_dump(),
         "content_type": ct_config.model_dump(),
@@ -52,98 +52,120 @@ async def run_pipeline(
     session.add(job)
     await session.flush()
 
-    # Data source — RSS or manual fallback
-    source: BaseSource = (
-        ManualSource(source_text) if source_text else RSSSource()
+    logger.info(
+        "job_started",
+        extra={
+            "job_id": str(payload.id),
+            "topic": payload.topic,
+            "regions": payload.regions,
+            "content_type": payload.content_type,
+        },
     )
-    print(f"Fetching sources for: '{payload.topic}'...")
+
+    source: BaseSource = ManualSource(source_text) if source_text else RSSSource()
+    logger.info("fetching_sources", extra={"topic": payload.topic})
     articles = await source.fetch(payload.topic)
-    print(f"  {len(articles)} article(s) fetched.")
+    logger.info("sources_fetched", extra={"count": len(articles)})
 
     drafts: list[ArticleDraft] = []
+    job_cost_so_far = 0.0
 
-    for region_id in payload.regions:
-        region_config = load_region(region_id)
-        print(f"\nRunning pipeline for region: {region_config.display_name} ({region_id})")
+    try:
+        for region_id in payload.regions:
+            region_config = load_region(region_id)
+            logger.info(
+                "region_started",
+                extra={"region": region_id, "display_name": region_config.display_name},
+            )
 
-        # Brief row — one per region in MVP
-        brief = Brief(job_id=job.id)
-        session.add(brief)
-        await session.flush()
+            brief_row = Brief(job_id=job.id)
+            session.add(brief_row)
+            await session.flush()
 
-        # Content piece row — placeholder until agent writes the body
-        piece = ContentPiece(
-            brief_id=brief.id,
-            region=region_id,
-            content_type="regional_article",
-            status="draft",
+            piece = ContentPiece(
+                brief_id=brief_row.id,
+                region=region_id,
+                content_type="regional_article",
+                status="draft",
+            )
+            session.add(piece)
+            await session.flush()
+
+            chain = AgentChain()
+            draft, chain_cost = await chain.run(
+                payload.topic,
+                articles,
+                region_config,
+                ct_config,
+                session=session,
+                content_piece_id=piece.id,
+                job_cost_so_far=job_cost_so_far,
+            )
+            job_cost_so_far += chain_cost
+
+            await session.refresh(piece)
+            logger.info(
+                "region_complete",
+                extra={
+                    "region": region_id,
+                    "status": piece.status,
+                    "words": draft.word_count,
+                    "headline": draft.headline,
+                    "chain_cost_usd": round(chain_cost, 6),
+                    "job_cost_so_far_usd": round(job_cost_so_far, 6),
+                },
+            )
+
+            drafts.append(draft)
+
+    except Exception:
+        job.status = "failed"
+        job.completed_at = datetime.utcnow()
+        await session.commit()
+        logger.exception(
+            "job_failed",
+            extra={"job_id": str(payload.id), "cost_before_failure_usd": round(job_cost_so_far, 6)},
         )
-        session.add(piece)
-        await session.flush()
+        raise
 
-        # Single Claude call — replaced by full agent chain in Sprint 2
-        agent = SmokeWriterAgent()
-        user_message = _build_user_message(payload.topic, articles, region_config, ct_config)
-
-        print(f"  Calling Claude ({agent.MODEL})...")
-        raw_text = await agent.run(
-            user_message,
-            session=session,
-            content_piece_id=piece.id,
-            iteration=1,
-            job_cost_so_far=0.0,
-        )
-
-        # Parse headline from first non-empty line
-        lines = [l.strip() for l in raw_text.strip().splitlines() if l.strip()]
-        headline = lines[0].lstrip("#").strip() if lines else payload.topic
-        word_count = len(raw_text.split())
-
-        # Update content piece with written content
-        piece.headline = headline
-        piece.body = raw_text
-        piece.word_count = word_count
-        piece.status = "draft"
-        piece.updated_at = datetime.utcnow()
-
-        draft = ArticleDraft(
-            headline=headline,
-            body=raw_text,
-            word_count=word_count,
-            region_id=region_id,
-            iteration=1,
-        )
-        drafts.append(draft)
-        print(f"  Done. {word_count} words — '{headline}'")
-
-    # Mark job complete
     job.status = "complete"
     job.completed_at = datetime.utcnow()
     await session.commit()
 
+    logger.info(
+        "job_complete",
+        extra={
+            "job_id": str(payload.id),
+            "regions": len(drafts),
+            "total_cost_usd": round(job_cost_so_far, 6),
+        },
+    )
+
     return drafts
 
 
-# ---------------------------------------------------------------------------
-# User message builder
-# ---------------------------------------------------------------------------
-
-def _build_user_message(topic, articles, region_config, ct_config) -> str:
-    sources_block = "\n\n".join(
-        f"--- SOURCE: {a.source_name} ---\nTitle: {a.title}\n\n{a.body[:2000]}"
-        for a in articles[:5]
+async def query_cost_report(
+    session: AsyncSession,
+    job_id: object,
+) -> list[dict]:
+    """
+    Return per-agent token and cost totals for a completed job.
+    Queries agent_runs joined through content_pieces → briefs → jobs.
+    """
+    stmt = (
+        select(
+            AgentRun.agent_name,
+            AgentRun.iteration,
+            AgentRun.input_tokens,
+            AgentRun.output_tokens,
+            AgentRun.cost_usd,
+            AgentRun.duration_ms,
+            ContentPiece.region,
+        )
+        .join(ContentPiece, AgentRun.content_piece_id == ContentPiece.id)
+        .join(Brief, ContentPiece.brief_id == Brief.id)
+        .where(Brief.job_id == job_id)
+        .order_by(ContentPiece.region, AgentRun.agent_name, AgentRun.iteration)
     )
-    return f"""TOPIC: {topic}
-
-EDITORIAL VOICE:
-{region_config.editorial_voice}
-
-FORMAT INSTRUCTIONS:
-{ct_config.writer_instructions}
-Minimum words: {ct_config.output.min_words}
-Maximum words: {ct_config.output.max_words}
-
-SOURCE ARTICLES:
-{sources_block}
-
-Write the article now."""
+    result = await session.execute(stmt)
+    return [row._asdict() for row in result.all()]
