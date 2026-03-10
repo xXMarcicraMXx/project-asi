@@ -13,6 +13,10 @@ The FeedbackLoop table records every editor verdict for the audit trail.
 Returns:
     (ArticleDraft, total_chain_cost_usd)  — so the pipeline can accumulate the
     running job cost and pass a correct ceiling-check value to the next region.
+
+Day 14: Pinecone RAG context is fetched once per chain run and injected into
+the WriterAgent's user message (persona_guideline + golden_sample, top_k=1 each).
+Pinecone errors are non-fatal — the chain falls back to YAML-only context.
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +34,12 @@ from agents.writer_agent import WriterAgent
 from config import ContentTypeConfig, RegionConfig
 from db.models import ContentPiece, FeedbackLoop
 from orchestrator.job_model import Article, ArticleDraft, EditorDecision
+
+try:
+    from rag.pinecone_client import PineconeClient as _PineconeClient
+    _RAG_AVAILABLE = True
+except ImportError:
+    _RAG_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +105,9 @@ class AgentChain:
             },
         )
 
+        # --- RAG context (once per chain, injected into every write iteration) ---
+        rag_context = _fetch_rag_context(topic, region_config)
+
         editor_feedback: str | None = None
         draft: ArticleDraft | None = None
         chain_cost = running_cost - job_cost_so_far   # cost accumulated this chain
@@ -109,6 +123,7 @@ class AgentChain:
                 iteration=iteration,
                 job_cost_so_far=running_cost,
                 editor_feedback=editor_feedback,
+                rag_context=rag_context,
             )
             running_cost += self._writer.last_call_cost
             chain_cost += self._writer.last_call_cost
@@ -176,6 +191,66 @@ class AgentChain:
             },
         )
         return draft, chain_cost
+
+
+# ---------------------------------------------------------------------------
+# RAG helpers
+# ---------------------------------------------------------------------------
+
+def _fetch_rag_context(topic: str, region_config: RegionConfig) -> Optional[str]:
+    """
+    Fetch persona_guideline + golden_sample from Pinecone and return a combined
+    context string for injection into the WriterAgent's user message.
+
+    Returns None if Pinecone is unavailable or returns no results — the chain
+    then falls back to YAML-only editorial voice context.
+    """
+    if not _RAG_AVAILABLE:
+        return None
+
+    department = region_config.pinecone_metadata.department
+
+    try:
+        client = _PineconeClient.from_settings()
+        parts: list[str] = []
+
+        persona_hits = client.query(
+            text=topic,
+            filter={"department": department, "document_type": "persona_guideline"},
+            top_k=1,
+        )
+        if persona_hits:
+            parts.append(f"REGIONAL PERSONA GUIDELINES:\n{persona_hits[0].strip()}")
+
+        sample_hits = client.query(
+            text=topic,
+            filter={"department": department, "document_type": "golden_sample"},
+            top_k=1,
+        )
+        if sample_hits:
+            parts.append(f"EXEMPLAR ARTICLE (reference voice only — do not copy):\n{sample_hits[0].strip()}")
+
+        if not parts:
+            return None
+
+        context = "\n\n".join(parts)
+        logger.debug(
+            "rag_context_fetched",
+            extra={
+                "region": region_config.region_id,
+                "department": department,
+                "persona_chars": len(persona_hits[0]) if persona_hits else 0,
+                "sample_chars": len(sample_hits[0]) if sample_hits else 0,
+            },
+        )
+        return context
+
+    except Exception as exc:
+        logger.warning(
+            "rag_context_unavailable",
+            extra={"region": region_config.region_id, "error": str(exc)},
+        )
+        return None
 
 
 # ---------------------------------------------------------------------------
