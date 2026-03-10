@@ -49,6 +49,8 @@ class ModelsConfig(BaseModel):
 class PineconeConfig(BaseModel):
     index_name: str
     top_k: int = Field(..., ge=1, le=20)
+    embedding_model: str = "llama-text-embed-v2"
+    embedding_dimension: int = Field(1024, gt=0)
 
 
 class CostConfig(BaseModel):
