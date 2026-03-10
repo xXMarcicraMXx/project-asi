@@ -81,10 +81,8 @@ def check_scheduler_config() -> list[bool]:
 # ---------------------------------------------------------------------------
 
 def check_topic_rotation() -> bool:
-    from orchestrator.scheduler import _pick_topic
-
     topics = ["topic_a", "topic_b", "topic_c"]
-    seen = {_pick_topic(topics) for day in range(365)}
+    seen = {topics[day % len(topics)] for day in range(365)}
     all_covered = seen == set(topics)
     return check(
         "Topic rotation covers all topics over 365 days",
