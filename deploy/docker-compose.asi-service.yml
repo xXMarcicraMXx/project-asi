@@ -1,0 +1,29 @@
+# ── Add this asi-app block to ~/n8n-asi/docker-compose.yml ──────────────────
+# Place it after the n8n service, before the volumes section.
+# The webhook port (3000) is exposed only to the Docker network — Caddy proxies it.
+
+  asi-app:
+    build: ./asi
+    restart: always
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME}
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - ASI_SLACK_CHANNEL_ID=${ASI_SLACK_CHANNEL_ID}
+      - ASI_SLACK_SIGNING_SECRET=${ASI_SLACK_SIGNING_SECRET}
+      - RSS_FEED_URLS=${RSS_FEED_URLS}
+      - ASI_OUTPUT_DIR=/data/asi-output
+      - ASI_MAX_USD_PER_JOB=${ASI_MAX_USD_PER_JOB}
+      - ASI_WEBHOOK_PORT=3000
+    volumes:
+      - asi_output:/data/asi-output
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
