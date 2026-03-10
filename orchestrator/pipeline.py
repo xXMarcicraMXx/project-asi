@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents.chain import AgentChain
+from approval.slack_bot import post_for_approval
 from config import ContentTypeConfig, load_content_type, load_region, load_settings
 from data_sources.base_source import BaseSource
 from data_sources.rss_source import ManualSource, RSSSource
@@ -87,15 +88,16 @@ async def run_pipeline(
         )
         for region_id in payload.regions
     ]
-    region_results: list[tuple[str, ArticleDraft | None, float, BaseException | None]]
+    region_results: list[tuple[str, ArticleDraft | None, float, uuid.UUID | None, BaseException | None]]
     region_results = await asyncio.gather(*tasks)
 
     # ── Collect results ───────────────────────────────────────────────────────
     drafts: list[ArticleDraft] = []
+    approval_pieces: list[dict] = []
     total_cost = 0.0
     failed_regions: list[str] = []
 
-    for region_id, draft, chain_cost, error in region_results:
+    for region_id, draft, chain_cost, piece_id, error in region_results:
         if error is not None:
             failed_regions.append(region_id)
             logger.error(
@@ -106,6 +108,12 @@ async def run_pipeline(
             assert draft is not None
             drafts.append(draft)
             total_cost += chain_cost
+            approval_pieces.append({
+                "content_piece_id": piece_id,
+                "region_id": region_id,
+                "headline": draft.headline,
+                "body": draft.body,
+            })
             logger.info(
                 "region_complete",
                 extra={
@@ -125,6 +133,10 @@ async def run_pipeline(
         job.status = "complete"
     job.completed_at = datetime.utcnow()
     await session.commit()
+
+    # ── Slack approval gate ───────────────────────────────────────────────────
+    if approval_pieces:
+        await post_for_approval(approval_pieces, payload.id)
 
     logger.info(
         "job_complete",
@@ -150,12 +162,12 @@ async def _run_region_task(
     topic: str,
     articles: list[Article],
     ct_config: ContentTypeConfig,
-) -> tuple[str, ArticleDraft | None, float, BaseException | None]:
+) -> tuple[str, ArticleDraft | None, float, uuid.UUID | None, BaseException | None]:
     """
     Run one region end-to-end in its own DB session.
 
-    Returns (region_id, draft, chain_cost, error).
-    On success error is None; on failure draft is None and error holds the exception.
+    Returns (region_id, draft, chain_cost, piece_id, error).
+    On success error is None; on failure draft and piece_id are None.
     The caller (run_pipeline) decides what to do with failed regions.
     """
     async with AsyncSessionLocal() as session:
@@ -191,14 +203,14 @@ async def _run_region_task(
             )
 
             await session.commit()
-            return region_id, draft, chain_cost, None
+            return region_id, draft, chain_cost, piece.id, None
 
         except Exception as exc:
             logger.exception(
                 "region_task_error",
                 extra={"region": region_id, "job_id": str(job_id)},
             )
-            return region_id, None, 0.0, exc
+            return region_id, None, 0.0, None, exc
 
 
 # ---------------------------------------------------------------------------
