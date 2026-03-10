@@ -73,6 +73,7 @@ class LoggingConfig(BaseModel):
 class SchedulerConfig(BaseModel):
     cron: str
     default_regions: list[str] = Field(..., min_length=1)
+    default_topics: list[str] = Field(..., min_length=1)
 
 
 class SettingsConfig(BaseModel):
