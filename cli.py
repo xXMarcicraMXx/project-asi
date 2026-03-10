@@ -74,15 +74,26 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Human-readable log format (default: JSON)",
     )
+    run_cmd.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate config and sources, print plan — no agents run, no DB writes",
+    )
     return parser
 
 
 async def cmd_run(args: argparse.Namespace) -> None:
+    from config import load_content_type, load_region
+
     payload = JobPayload(
         topic=args.topic,
         content_type=args.content_type,
         regions=[r.upper() for r in args.regions],
     )
+
+    if args.dry_run:
+        await _cmd_dry_run(payload, args)
+        return
 
     logger.info(
         "cli_run",
@@ -121,6 +132,60 @@ async def cmd_run(args: argparse.Namespace) -> None:
     _print_cost_report(report_rows)
 
     print(f"\nJob complete. {len(drafts)} article(s) produced.")
+
+
+async def _cmd_dry_run(payload: JobPayload, args: argparse.Namespace) -> None:
+    """
+    Validate configs and fetch sources — no agents are called, no DB writes.
+    Prints a summary of what would run and exits.
+    """
+    from config import load_content_type, load_region
+    from data_sources.rss_source import ManualSource, RSSSource
+
+    print("\n" + "─" * 72)
+    print(f"  DRY RUN — no agents will be called, no DB writes")
+    print("─" * 72)
+    print(f"  Job ID     : {payload.id}")
+    print(f"  Topic      : {payload.topic}")
+    print(f"  Content    : {payload.content_type}")
+    print(f"  Regions    : {', '.join(payload.regions)}")
+
+    # Validate content type
+    try:
+        ct = load_content_type(payload.content_type)
+        print(f"\n  [OK] Content type '{ct.content_type}' — "
+              f"{ct.output.min_words}–{ct.output.max_words} words")
+    except Exception as exc:
+        print(f"\n  [ERR] Content type load failed: {exc}")
+        return
+
+    # Validate region configs
+    print()
+    for region_id in payload.regions:
+        try:
+            r = load_region(region_id)
+            print(f"  [OK] Region {r.region_id} — {r.display_name}")
+        except Exception as exc:
+            print(f"  [ERR] Region {region_id}: {exc}")
+
+    # Fetch sources
+    print(f"\n  Fetching sources for topic: '{payload.topic}'…")
+    try:
+        source = ManualSource(args.source_text) if args.source_text else RSSSource()
+        articles = await source.fetch(payload.topic)
+        print(f"  [OK] {len(articles)} source article(s) found")
+        for i, a in enumerate(articles[:3], 1):
+            print(f"       {i}. {a.title[:70]}")
+        if len(articles) > 3:
+            print(f"       … and {len(articles) - 3} more")
+    except Exception as exc:
+        print(f"  [ERR] Source fetch failed: {exc}")
+
+    print("\n  Pipeline would run:")
+    for region_id in payload.regions:
+        print(f"    → {region_id}: research → write → edit (up to {4} iterations)")
+
+    print("\n  Dry run complete. No tokens used, no DB writes.\n")
 
 
 def _print_cost_report(rows: list[dict]) -> None:

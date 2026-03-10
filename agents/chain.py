@@ -43,7 +43,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-MAX_ITERATIONS = 3
+MAX_ITERATIONS = 4
 
 
 class AgentChain:
