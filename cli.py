@@ -2,13 +2,14 @@
 ASI CLI — entry point for triggering pipeline runs.
 
 Usage:
-    python cli.py run --topic "EU elections" --region EU
-    python cli.py run --topic "AI regulation" --region EU --region NA
-    python cli.py run --topic "custom topic" --region EU --source-text "paste article text here"
+    python cli.py run --topic "EU elections" --regions EU
+    python cli.py run --topic "AI regulation" --regions EU NA
+    python cli.py run --topic "global trade" --regions EU LATAM SEA NA
+    python cli.py run --topic "custom topic" --regions EU --source-text "paste article text here"
 
 Options:
     --topic         Topic to research and write about (required)
-    --region        Region ID to produce an article for; repeat for multiple regions
+    --regions       One or more region IDs: EU LATAM SEA NA
     --content-type  Content type config to use (default: journal_article)
     --source-text   Skip RSS fetch and use this raw text as the source
     --output-dir    Directory to write article markdown files (optional)
@@ -46,12 +47,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_cmd = sub.add_parser("run", help="Run the article pipeline")
     run_cmd.add_argument("--topic", required=True, help="Topic to write about")
     run_cmd.add_argument(
-        "--region",
+        "--regions",
         dest="regions",
-        action="append",
+        nargs="+",
         required=True,
         metavar="REGION",
-        help="Region ID (EU | LATAM | SEA | NA). Repeat for multiple regions.",
+        help="One or more region IDs: EU LATAM SEA NA",
     )
     run_cmd.add_argument(
         "--content-type",
