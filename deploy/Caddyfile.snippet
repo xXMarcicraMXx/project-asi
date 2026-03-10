@@ -1,0 +1,11 @@
+# Add this block inside your existing n8n.metis.rest site block in Caddyfile
+# (or as a separate route if you prefer a subdomain)
+
+# Route Slack interactive callbacks to the ASI webhook server
+handle /slack/interactive {
+    reverse_proxy asi-app:3000
+}
+
+handle /asi/health {
+    reverse_proxy asi-app:3000/health
+}
