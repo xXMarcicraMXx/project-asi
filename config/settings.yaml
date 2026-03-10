@@ -5,6 +5,8 @@ models:
 pinecone:
   index_name: asi-personas
   top_k: 2
+  embedding_model: llama-text-embed-v2   # Pinecone inference model
+  embedding_dimension: 1024              # must match index dimensions
 
 cost:
   max_usd_per_job: 2.00
