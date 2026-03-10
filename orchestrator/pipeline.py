@@ -2,25 +2,32 @@
 Pipeline — orchestrates one full job across all requested regions.
 
 Flow:
-    CLI → load configs → fetch RSS (once) → AgentChain per region → return drafts
+    CLI → load configs → fetch RSS (once) → AgentChain per region (parallel) → return drafts
 
-Each region runs sequentially (Sprint 2). Upgraded to asyncio.gather in Sprint 3.
+Day 15: regions run concurrently via asyncio.gather().
+Each region gets its own DB session so sessions are never shared across coroutines.
+Error isolation: one failing region logs an error and returns None — other regions
+still complete and their drafts are returned. Job status is set to "partial" when
+at least one region succeeds but at least one fails.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import uuid
 from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents.chain import AgentChain
-from config import load_content_type, load_region, load_settings
+from config import ContentTypeConfig, load_content_type, load_region, load_settings
 from data_sources.base_source import BaseSource
 from data_sources.rss_source import ManualSource, RSSSource
 from db.models import AgentRun, Brief, ContentPiece, Job
-from orchestrator.job_model import ArticleDraft, JobPayload
+from db.session import AsyncSessionLocal
+from orchestrator.job_model import Article, ArticleDraft, JobPayload
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +38,8 @@ async def run_pipeline(
     source_text: str | None = None,
 ) -> list[ArticleDraft]:
     """
-    Run the full agent chain for every region in the payload.
-    Returns one ArticleDraft per region.
+    Run the full agent chain for every region in the payload — in parallel.
+    Returns one ArticleDraft per region that completed successfully.
     """
     settings = load_settings()
     ct_config = load_content_type(payload.content_type)
@@ -51,7 +58,8 @@ async def run_pipeline(
         config_snapshot=config_snapshot,
     )
     session.add(job)
-    await session.flush()
+    # Commit now so region sessions can reference job.id via FK
+    await session.commit()
 
     logger.info(
         "job_started",
@@ -68,18 +76,97 @@ async def run_pipeline(
     articles = await source.fetch(payload.topic)
     logger.info("sources_fetched", extra={"count": len(articles)})
 
-    drafts: list[ArticleDraft] = []
-    job_cost_so_far = 0.0
+    # ── Parallel region execution ─────────────────────────────────────────────
+    tasks = [
+        _run_region_task(
+            region_id=region_id,
+            job_id=payload.id,
+            topic=payload.topic,
+            articles=articles,
+            ct_config=ct_config,
+        )
+        for region_id in payload.regions
+    ]
+    region_results: list[tuple[str, ArticleDraft | None, float, BaseException | None]]
+    region_results = await asyncio.gather(*tasks)
 
-    try:
-        for region_id in payload.regions:
+    # ── Collect results ───────────────────────────────────────────────────────
+    drafts: list[ArticleDraft] = []
+    total_cost = 0.0
+    failed_regions: list[str] = []
+
+    for region_id, draft, chain_cost, error in region_results:
+        if error is not None:
+            failed_regions.append(region_id)
+            logger.error(
+                "region_failed",
+                extra={"region": region_id, "error": str(error), "job_id": str(payload.id)},
+            )
+        else:
+            assert draft is not None
+            drafts.append(draft)
+            total_cost += chain_cost
+            logger.info(
+                "region_complete",
+                extra={
+                    "region": region_id,
+                    "words": draft.word_count,
+                    "headline": draft.headline,
+                    "chain_cost_usd": round(chain_cost, 6),
+                },
+            )
+
+    # ── Update job status ─────────────────────────────────────────────────────
+    if not drafts:
+        job.status = "failed"
+    elif failed_regions:
+        job.status = "partial"
+    else:
+        job.status = "complete"
+    job.completed_at = datetime.utcnow()
+    await session.commit()
+
+    logger.info(
+        "job_complete",
+        extra={
+            "job_id": str(payload.id),
+            "status": job.status,
+            "regions_ok": len(drafts),
+            "regions_failed": len(failed_regions),
+            "total_cost_usd": round(total_cost, 6),
+        },
+    )
+
+    return drafts
+
+
+# ---------------------------------------------------------------------------
+# Per-region task — own session, own error boundary
+# ---------------------------------------------------------------------------
+
+async def _run_region_task(
+    region_id: str,
+    job_id: uuid.UUID,
+    topic: str,
+    articles: list[Article],
+    ct_config: ContentTypeConfig,
+) -> tuple[str, ArticleDraft | None, float, BaseException | None]:
+    """
+    Run one region end-to-end in its own DB session.
+
+    Returns (region_id, draft, chain_cost, error).
+    On success error is None; on failure draft is None and error holds the exception.
+    The caller (run_pipeline) decides what to do with failed regions.
+    """
+    async with AsyncSessionLocal() as session:
+        try:
             region_config = load_region(region_id)
             logger.info(
                 "region_started",
                 extra={"region": region_id, "display_name": region_config.display_name},
             )
 
-            brief_row = Brief(job_id=job.id)
+            brief_row = Brief(job_id=job_id)
             session.add(brief_row)
             await session.flush()
 
@@ -94,56 +181,29 @@ async def run_pipeline(
 
             chain = AgentChain()
             draft, chain_cost = await chain.run(
-                payload.topic,
+                topic,
                 articles,
                 region_config,
                 ct_config,
                 session=session,
                 content_piece_id=piece.id,
-                job_cost_so_far=job_cost_so_far,
-            )
-            job_cost_so_far += chain_cost
-
-            await session.refresh(piece)
-            logger.info(
-                "region_complete",
-                extra={
-                    "region": region_id,
-                    "status": piece.status,
-                    "words": draft.word_count,
-                    "headline": draft.headline,
-                    "chain_cost_usd": round(chain_cost, 6),
-                    "job_cost_so_far_usd": round(job_cost_so_far, 6),
-                },
+                job_cost_so_far=0.0,  # parallel start — no sequential cost to carry
             )
 
-            drafts.append(draft)
+            await session.commit()
+            return region_id, draft, chain_cost, None
 
-    except Exception:
-        job.status = "failed"
-        job.completed_at = datetime.utcnow()
-        await session.commit()
-        logger.exception(
-            "job_failed",
-            extra={"job_id": str(payload.id), "cost_before_failure_usd": round(job_cost_so_far, 6)},
-        )
-        raise
+        except Exception as exc:
+            logger.exception(
+                "region_task_error",
+                extra={"region": region_id, "job_id": str(job_id)},
+            )
+            return region_id, None, 0.0, exc
 
-    job.status = "complete"
-    job.completed_at = datetime.utcnow()
-    await session.commit()
 
-    logger.info(
-        "job_complete",
-        extra={
-            "job_id": str(payload.id),
-            "regions": len(drafts),
-            "total_cost_usd": round(job_cost_so_far, 6),
-        },
-    )
-
-    return drafts
-
+# ---------------------------------------------------------------------------
+# Cost report
+# ---------------------------------------------------------------------------
 
 async def query_cost_report(
     session: AsyncSession,
