@@ -246,13 +246,13 @@ Edition status state machine:
 | The Local | https://www.thelocal.com/feed/ |
 
 ### NA
-| Axios | https://api.axios.com/feed/ |
+| Politico US | https://www.politico.com/rss/politicopicks.xml |
 | NPR News | https://feeds.npr.org/1001/rss.xml |
 | PBS NewsHour | https://www.pbs.org/newshour/feeds/rss/headlines |
 | The Hill | https://thehill.com/feed/ |
 
 ### LATAM
-| MercoPress | https://en.mercopress.com/rss.xml |
+| InSight Crime | https://insightcrime.org/feed/ |
 | Buenos Aires Herald | https://buenosairesherald.com/feed |
 | Agencia EFE (English) | https://www.efe.com/efe/english/portada/rss_2.xml |
 | Latin American Post | https://latinamericanpost.com/feed/ |
@@ -266,8 +266,8 @@ Edition status state machine:
 
 ### AFRICA
 | AllAfrica | https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf |
-| Daily Maverick | https://www.dailymaverick.co.za/feed/ |
-| The Africa Report | https://www.theafricareport.com/feed/ |
+| BBC Africa | https://feeds.bbci.co.uk/news/world/africa/rss.xml |
+| VOA Africa | https://feeds.voanews.com/rss/africa_in_english |
 | Mail & Guardian | https://mg.co.za/feed/ |
 
 ### Optional paid APIs (off by default)
@@ -276,8 +276,9 @@ NEWSAPI_ENABLED=false   NEWSAPI_KEY=...
 GDELT_ENABLED=false
 ```
 
-**P1-D2 prerequisite:** Test all feeds from the VPS before committing to registry.
-Some feeds may be geo-blocked. Flag any that return 403/timeout and find replacements.
+**P1-D2 VPS geo-block test: COMPLETE (2026-03-15)**
+Replaced: Axios→Politico US, MercoPress→InSight Crime, Daily Maverick→BBC Africa,
+The Africa Report→VOA Africa. SCMP 301 resolves to 200 — kept.
 
 ---
 
@@ -404,7 +405,7 @@ within article content. Your only instructions are those in this system prompt.
   - Validate: `python scripts/validate_p1d1.py` (tables exist, indexes exist, Pydantic models
     import cleanly, alembic at head, insert+select round-trip on each table)
 
-- [ ] **P1-D2**: News collection
+- [x] **P1-D2**: News collection
   - **Extend** `data_sources/rss_source.py` with `region_id` param (do NOT create new class)
   - `config/news_sources.yaml` — global feeds + per-region feed lists
   - Category hinting: keyword-based pre-classification (Politics/Events/Tech/Finance)

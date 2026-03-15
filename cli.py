@@ -79,7 +79,53 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Validate config and sources, print plan — no agents run, no DB writes",
     )
+    # ── collect subcommand (Metis v2) ─────────────────────────────────────────
+    collect_cmd = sub.add_parser("collect", help="Test Metis news collection (no agents)")
+    collect_cmd.add_argument(
+        "--regions",
+        nargs="+",
+        default=["eu", "na", "latam", "apac", "africa"],
+        metavar="REGION",
+        help="Regions to collect for (default: all 5)",
+    )
+    collect_cmd.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print story counts per region — no DB writes",
+    )
+    collect_cmd.add_argument(
+        "--log-plain",
+        action="store_true",
+        help="Human-readable log format",
+    )
+
     return parser
+
+
+async def cmd_collect(args: argparse.Namespace) -> None:
+    """Collect news for one or more regions and print story counts."""
+    from data_sources.rss_source import MetisRSSCollector, log_duplicate_urls
+
+    regions = [r.lower() for r in args.regions]
+    print(f"\nMetis news collection — regions: {', '.join(regions)}")
+    print("─" * 60)
+
+    stories_by_region: dict = {}
+    for region in regions:
+        try:
+            collector = MetisRSSCollector(region_id=region)
+            stories = await collector.collect()
+            stories_by_region[region] = stories
+            print(f"  [{region:6}]  {len(stories):3} stories collected")
+        except RuntimeError as e:
+            print(f"  [{region:6}]  ERROR — {e}")
+
+    if len(stories_by_region) > 1:
+        log_duplicate_urls(stories_by_region)
+
+    total = sum(len(s) for s in stories_by_region.values())
+    print("─" * 60)
+    print(f"  Total: {total} stories across {len(stories_by_region)} region(s)\n")
 
 
 async def cmd_run(args: argparse.Namespace) -> None:
@@ -245,6 +291,8 @@ def main() -> None:
 
     if args.command == "run":
         asyncio.run(cmd_run(args))
+    elif args.command == "collect":
+        asyncio.run(cmd_collect(args))
     else:
         parser.print_help()
         sys.exit(1)

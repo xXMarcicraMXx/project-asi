@@ -1,0 +1,137 @@
+# config/news_sources.yaml
+# Feed registry for Metis v2 news collection.
+#
+# All feeds verified accessible from VPS on 2026-03-15.
+# Replacements from geo-block test:
+#   Axios (403)           → Politico US
+#   MercoPress (403)      → InSight Crime
+#   Daily Maverick (403)  → BBC Africa
+#   The Africa Report (403) → VOA Africa
+#   SCMP (301→200)        → kept (redirect resolves)
+#
+# Structure:
+#   global:  included in every region's story pool
+#   regions: per-region feeds merged with global pool
+
+global:
+  - url: "https://feeds.reuters.com/reuters/topNews"
+    name: "Reuters"
+    category_hint: null
+
+  - url: "https://rsshub.app/apnews/topics/ap-top-news"
+    name: "AP News"
+    category_hint: null
+
+  - url: "https://feeds.bbci.co.uk/news/world/rss.xml"
+    name: "BBC World"
+    category_hint: null
+
+  - url: "https://www.theguardian.com/world/rss"
+    name: "Guardian World"
+    category_hint: null
+
+  - url: "https://techcrunch.com/feed/"
+    name: "TechCrunch"
+    category_hint: "Tech"
+
+  - url: "https://www.theverge.com/rss/index.xml"
+    name: "The Verge"
+    category_hint: "Tech"
+
+  - url: "https://www.ft.com/rss/home"
+    name: "Financial Times"
+    category_hint: "Finance"
+
+  - url: "https://feeds.bloomberg.com/markets/news.rss"
+    name: "Bloomberg Markets"
+    category_hint: "Finance"
+
+regions:
+  eu:
+    - url: "https://www.politico.eu/feed/"
+      name: "Politico Europe"
+      category_hint: "Politics"
+
+    - url: "https://rss.dw.com/rdf/rss-en-all"
+      name: "Deutsche Welle"
+      category_hint: null
+
+    - url: "https://feeds.feedburner.com/euronews/en/news/"
+      name: "Euronews"
+      category_hint: null
+
+    - url: "https://www.thelocal.com/feed/"
+      name: "The Local"
+      category_hint: null
+
+  na:
+    - url: "https://www.politico.com/rss/politicopicks.xml"
+      name: "Politico US"
+      category_hint: "Politics"
+
+    - url: "https://feeds.npr.org/1001/rss.xml"
+      name: "NPR News"
+      category_hint: null
+
+    - url: "https://www.pbs.org/newshour/feeds/rss/headlines"
+      name: "PBS NewsHour"
+      category_hint: null
+
+    - url: "https://thehill.com/feed/"
+      name: "The Hill"
+      category_hint: "Politics"
+
+  latam:
+    - url: "https://insightcrime.org/feed/"
+      name: "InSight Crime"
+      category_hint: "Events"
+
+    - url: "https://buenosairesherald.com/feed"
+      name: "Buenos Aires Herald"
+      category_hint: null
+
+    - url: "https://www.efe.com/efe/english/portada/rss_2.xml"
+      name: "Agencia EFE"
+      category_hint: null
+
+    - url: "https://latinamericanpost.com/feed/"
+      name: "Latin American Post"
+      category_hint: null
+
+  apac:
+    - url: "https://www.japantimes.co.jp/feed/"
+      name: "Japan Times"
+      category_hint: null
+
+    - url: "https://asia.nikkei.com/rss/feed/nar"
+      name: "Nikkei Asia"
+      category_hint: "Finance"
+
+    - url: "https://www.scmp.com/rss/91/feed"
+      name: "South China Morning Post"
+      category_hint: null
+
+    - url: "https://thediplomat.com/feed/"
+      name: "The Diplomat"
+      category_hint: "Politics"
+
+    - url: "https://www3.nhk.or.jp/rss/news/cat0.xml"
+      name: "NHK World"
+      category_hint: null
+
+  africa:
+    - url: "https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf"
+      name: "AllAfrica"
+      category_hint: null
+
+    - url: "https://feeds.bbci.co.uk/news/world/africa/rss.xml"
+      name: "BBC Africa"
+      category_hint: null
+
+    - url: "https://feeds.voanews.com/rss/africa_in_english"
+      name: "VOA Africa"
+      category_hint: null
+
+    - url: "https://mg.co.za/feed/"
+      name: "Mail & Guardian"
+      category_hint: null

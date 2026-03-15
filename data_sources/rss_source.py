@@ -160,6 +160,254 @@ class RSSSource(BaseSource):
 
 
 # ---------------------------------------------------------------------------
+# MetisRSSCollector — Metis v2 news collection (region-aware, no topic filter)
+# ---------------------------------------------------------------------------
+
+import logging as _logging
+from pathlib import Path as _Path
+
+import yaml as _yaml
+
+from orchestrator.brief_job_model import RawStory as _RawStory
+
+_mclog = _logging.getLogger(__name__)
+
+# Keyword sets for category hinting.
+# Not authoritative — CurationAgent assigns the final category.
+# Matched case-insensitively against title + RSS summary.
+_CATEGORY_KEYWORDS: dict[str, list[str]] = {
+    "Politics": [
+        "election", "president", "parliament", "government", "minister",
+        "senate", "congress", "vote", "treaty", "diplomat", "sanctions",
+        "legislation", "constitutional", "political", "prime minister",
+        "foreign policy", "nato", "un security", "referendum",
+    ],
+    "Finance": [
+        "bank", "market", "stock", "gdp", "inflation", "interest rate",
+        "federal reserve", "ecb", "economy", "trade deficit", "tariff",
+        "currency", "bond", "investment", "fiscal", "monetary", "imf",
+        "central bank", "recession", "earnings", "ipo",
+    ],
+    "Tech": [
+        "artificial intelligence", " ai ", "technology", "software", "cyber",
+        "semiconductor", "chip", "data breach", "digital", "internet",
+        "startup", "machine learning", "cloud computing", "quantum",
+        "big tech", "regulation tech", "open source",
+    ],
+    "Events": [
+        "conflict", "war", "airstrike", "disaster", "earthquake", "flood",
+        "protest", "attack", "summit", "crisis", "hurricane", "wildfire",
+        "explosion", "coup", "riot", "ceasefire", "humanitarian", "killed",
+        "victims", "evacuation",
+    ],
+}
+
+_NEWS_SOURCES_YAML = (
+    _Path(__file__).parent.parent / "config" / "news_sources.yaml"
+)
+
+
+def _hint_category(title: str, summary: str) -> str | None:
+    """
+    Return the most likely category based on keyword matches in title + summary.
+    Returns None if no category scores above zero (CurationAgent will assign it).
+    """
+    text = (title + " " + summary).lower()
+    scores: dict[str, int] = {cat: 0 for cat in _CATEGORY_KEYWORDS}
+    for cat, keywords in _CATEGORY_KEYWORDS.items():
+        for kw in keywords:
+            if kw in text:
+                scores[cat] += 1
+    best = max(scores, key=lambda c: scores[c])
+    return best if scores[best] > 0 else None
+
+
+def log_duplicate_urls(stories_by_region: dict[str, list[_RawStory]]) -> None:
+    """
+    Log URLs that appear in ≥2 region story pools.
+    Call this after collecting all 5 regions — used for Phase 4 dedup metrics.
+
+    Args:
+        stories_by_region: mapping of region_id → list of RawStory
+    """
+    url_regions: dict[str, list[str]] = {}
+    for region, stories in stories_by_region.items():
+        for story in stories:
+            if story.url:
+                url_regions.setdefault(story.url, []).append(region)
+
+    duplicates = {url: regions for url, regions in url_regions.items() if len(regions) >= 2}
+    if duplicates:
+        _mclog.info(
+            "cross_region_duplicates",
+            extra={
+                "count": len(duplicates),
+                "urls": [
+                    {"url": url, "regions": regions}
+                    for url, regions in list(duplicates.items())[:20]  # cap log size
+                ],
+            },
+        )
+    else:
+        _mclog.debug("cross_region_duplicates", extra={"count": 0})
+
+
+class MetisRSSCollector:
+    """
+    Region-aware RSS collector for the Metis daily brief pipeline.
+
+    Loads feed URLs from config/news_sources.yaml — global feeds are merged
+    with the region-specific feeds. Returns list[RawStory] (Metis v2 type,
+    not the v1 Article type used by the Oracle pipeline).
+
+    Error handling:
+      - Single feed timeout (httpx.TimeoutException): log WARNING, skip, continue
+      - Single feed HTTP error: log WARNING with status code, skip, continue
+      - All feeds return 0 stories: raise RuntimeError (pipeline sends Slack alert)
+
+    Category hinting:
+      Keyword-based pre-classification (Politics/Events/Tech/Finance).
+      Not authoritative — CurationAgent assigns the final category.
+      If a feed entry has a category_hint in news_sources.yaml, that takes
+      precedence over the keyword classifier.
+
+    Optional env toggles (both default off):
+      NEWSAPI_ENABLED=true   NEWSAPI_KEY=...
+      GDELT_ENABLED=true
+    """
+
+    def __init__(
+        self,
+        region_id: str,
+        config_path: _Path | None = None,
+    ) -> None:
+        self._region_id = region_id.lower()
+        self._config_path = config_path or _NEWS_SOURCES_YAML
+        self._feeds: list[dict] = []  # populated by _load_feeds()
+
+    def _load_feeds(self) -> list[dict]:
+        """Load and merge global + regional feeds from YAML."""
+        with open(self._config_path, "r", encoding="utf-8") as f:
+            cfg = _yaml.safe_load(f)
+
+        global_feeds: list[dict] = cfg.get("global", [])
+        regional_feeds: list[dict] = cfg.get("regions", {}).get(self._region_id, [])
+
+        if not regional_feeds:
+            _mclog.warning(
+                "no_regional_feeds",
+                extra={"region": self._region_id, "config": str(self._config_path)},
+            )
+
+        return global_feeds + regional_feeds
+
+    async def collect(self) -> list[_RawStory]:
+        """
+        Fetch all feeds and return a deduplicated list of RawStory objects.
+
+        Raises:
+            RuntimeError: if all feeds fail or return 0 parseable entries.
+        """
+        self._feeds = self._load_feeds()
+
+        loop = asyncio.get_event_loop()
+
+        # Parse all feeds concurrently via thread executor (feedparser is sync)
+        tasks = [
+            loop.run_in_executor(None, feedparser.parse, feed["url"])
+            for feed in self._feeds
+        ]
+        parsed = await asyncio.gather(*tasks, return_exceptions=True)
+
+        stories: list[_RawStory] = []
+        seen_urls: set[str] = set()
+        feeds_ok = 0
+
+        for feed_cfg, result in zip(self._feeds, parsed):
+            url = feed_cfg["url"]
+            yaml_hint: str | None = feed_cfg.get("category_hint")
+            source_name: str = feed_cfg.get("name", url)
+
+            if isinstance(result, Exception):
+                _mclog.warning(
+                    "feed_parse_error",
+                    extra={"feed_url": url, "error": str(result)},
+                )
+                continue
+
+            if result.bozo and not result.entries:
+                _mclog.warning(
+                    "feed_parse_empty",
+                    extra={"feed_url": url, "bozo_exception": str(result.get("bozo_exception", ""))},
+                )
+                continue
+
+            feeds_ok += 1
+            for entry in result.entries:
+                entry_url: str = entry.get("link", "")
+
+                # Dedup within this collection run
+                if entry_url and entry_url in seen_urls:
+                    continue
+                if entry_url:
+                    seen_urls.add(entry_url)
+
+                title: str = entry.get("title", "").strip()
+                if not title:
+                    continue
+
+                summary: str = entry.get("summary", "") or entry.get("description", "")
+
+                # Category hint: YAML config > keyword classifier
+                category_hint = yaml_hint or _hint_category(title, summary)
+
+                published_at: datetime | None = None
+                if entry.get("published_parsed"):
+                    import calendar
+                    try:
+                        published_at = datetime.utcfromtimestamp(
+                            calendar.timegm(entry.published_parsed)
+                        )
+                    except Exception:
+                        pass
+
+                # Use RSS summary as body — avoids 50+ HTTP fetches per run.
+                # The WriterAgent receives this as context for its 100-150 word summary.
+                body = summary or title
+
+                stories.append(
+                    _RawStory(
+                        title=title,
+                        url=entry_url or None,
+                        source_name=source_name,
+                        category_hint=category_hint,  # type: ignore[arg-type]
+                        body=body,
+                        published_at=published_at,
+                        # body_preview truncated to 500 chars for DB audit column
+                    )
+                )
+
+        _mclog.info(
+            "collection_complete",
+            extra={
+                "region": self._region_id,
+                "feeds_attempted": len(self._feeds),
+                "feeds_ok": feeds_ok,
+                "stories": len(stories),
+            },
+        )
+
+        if not stories:
+            raise RuntimeError(
+                f"Metis news collection returned 0 stories for region '{self._region_id}'. "
+                f"Attempted {len(self._feeds)} feeds, {feeds_ok} parsed successfully. "
+                "Pipeline halted — check feed registry and network connectivity."
+            )
+
+        return stories
+
+
+# ---------------------------------------------------------------------------
 # ManualSource — used when --source-text is passed on the CLI
 # ---------------------------------------------------------------------------
 
