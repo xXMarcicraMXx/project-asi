@@ -99,6 +99,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Human-readable log format",
     )
 
+    # ── curate subcommand (Metis v2) ──────────────────────────────────────────
+    curate_cmd = sub.add_parser(
+        "curate",
+        help="Run StatusAgent + CurationAgent for one region (Metis v2)",
+    )
+    curate_cmd.add_argument(
+        "--region",
+        required=True,
+        metavar="REGION",
+        help="Region to curate for: eu | na | latam | apac | africa",
+    )
+    curate_cmd.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show config and story counts — skip API calls",
+    )
+    curate_cmd.add_argument(
+        "--log-plain",
+        action="store_true",
+        help="Human-readable log format",
+    )
+
     return parser
 
 
@@ -126,6 +148,78 @@ async def cmd_collect(args: argparse.Namespace) -> None:
     total = sum(len(s) for s in stories_by_region.values())
     print("─" * 60)
     print(f"  Total: {total} stories across {len(stories_by_region)} region(s)\n")
+
+
+async def cmd_curate(args: argparse.Namespace) -> None:
+    """
+    Run news collection + StatusAgent + CurationAgent for one region.
+    --dry-run shows config and story counts without making API calls.
+    """
+    from config import load_region
+    from data_sources.rss_source import MetisRSSCollector
+
+    region_id = args.region.lower()
+    print(f"\nMetis curate — region: {region_id.upper()}")
+    print("-" * 60)
+
+    # Validate region config
+    try:
+        region_cfg = load_region(region_id)
+        bias_preview = (region_cfg.curation_bias or "")[:80].replace("\n", " ")
+        print(f"  [OK] Region config loaded — {region_cfg.display_name}")
+        print(f"       curation_bias: {bias_preview}...")
+    except FileNotFoundError as exc:
+        print(f"  [ERR] {exc}")
+        return
+
+    # Collect stories
+    print(f"\n  Collecting stories for {region_id.upper()}...")
+    try:
+        collector = MetisRSSCollector(region_id=region_id)
+        stories = await collector.collect()
+        print(f"  [OK] {len(stories)} stories collected")
+    except RuntimeError as exc:
+        print(f"  [ERR] Collection failed: {exc}")
+        return
+
+    if args.dry_run:
+        print("\n  DRY RUN — skipping API calls")
+        print(f"  StatusAgent would read {min(len(stories), 50)} headlines")
+        print(f"  CurationAgent would select 5-8 from {len(stories)} stories")
+        print("  No tokens used.\n")
+        return
+
+    # StatusAgent
+    from agents.status_agent import StatusAgent
+    print("\n  Running StatusAgent...")
+    status_agent = StatusAgent()
+    from unittest.mock import MagicMock, AsyncMock
+    fake_session = AsyncMock()
+    fake_session.add = MagicMock()
+    fake_session.commit = AsyncMock()
+
+    status = await status_agent.run_brief(stories, session=fake_session)
+    print(f"  [OK] daily_color={status.daily_color}  sentiment={status.sentiment}")
+    print(f"       mood: {status.mood_headline}")
+
+    # CurationAgent
+    from agents.curation_agent import CurationAgent
+    print(f"\n  Running CurationAgent for {region_id.upper()}...")
+    curation_agent = CurationAgent()
+    curated = await curation_agent.run_region(
+        stories,
+        region_id=region_id,
+        curation_bias=region_cfg.curation_bias,
+        session=fake_session,
+    )
+    print(f"  [OK] {len(curated)} stories selected")
+    print()
+    for i, story in enumerate(curated, 1):
+        print(
+            f"  {i}. [{story.category}] score={story.significance_score:.2f}  "
+            f"{story.title[:60]}"
+        )
+    print()
 
 
 async def cmd_run(args: argparse.Namespace) -> None:
@@ -293,6 +387,8 @@ def main() -> None:
         asyncio.run(cmd_run(args))
     elif args.command == "collect":
         asyncio.run(cmd_collect(args))
+    elif args.command == "curate":
+        asyncio.run(cmd_curate(args))
     else:
         parser.print_help()
         sys.exit(1)

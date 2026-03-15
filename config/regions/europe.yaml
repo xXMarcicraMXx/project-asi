@@ -41,3 +41,14 @@ demographic_anchor:
 
 pinecone_metadata:
   department: editorial_EU
+
+curation_bias: >
+  Readers in this region primarily care about: EU Parliament and Commission
+  decisions, European Central Bank monetary policy, EU-China and EU-US trade
+  tensions, intra-EU political developments (especially Franco-German dynamics,
+  eastern member state divergences, and far-right electoral gains), European
+  energy security and the green transition, NATO decisions and European defence
+  spending, and rule-of-law disputes within the bloc. Global news matters when
+  it directly affects European markets, regulatory sovereignty, or EU treaty
+  obligations. Prioritise institutional mechanics over human-interest angles.
+  US domestic politics is context, not the story.

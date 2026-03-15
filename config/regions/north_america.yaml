@@ -48,3 +48,14 @@ demographic_anchor:
 
 pinecone_metadata:
   department: editorial_NA
+
+curation_bias: >
+  Readers in this region primarily care about: US domestic politics and Federal
+  Reserve decisions, US-China and US-Russia relations, Canada and Mexico
+  bilateral issues (trade, migration, energy), Wall Street and major tech
+  sector developments, congressional dynamics and regulatory rulemaking, and
+  Supreme Court or federal court decisions with broad impact. European news
+  matters when it involves NATO commitments or direct US trade exposure. Latin
+  American news matters primarily through the lens of migration, narcotics, and
+  energy security. Quantify impact in dollars, jobs, or votes wherever possible.
+  Lead with concrete domestic consequences before international context.

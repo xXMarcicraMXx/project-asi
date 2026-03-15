@@ -120,6 +120,8 @@ class RegionConfig(BaseModel):
     editorial_voice: str
     demographic_anchor: DemographicAnchor
     pinecone_metadata: PineconeMetadata
+    # Metis v2: injected into CurationAgent user message (not system prompt)
+    curation_bias: str | None = None
 
 
 class AllConfigs(BaseModel):

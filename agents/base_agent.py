@@ -100,7 +100,7 @@ class BaseAgent(ABC):
         user_message: str,
         *,
         session: AsyncSession,
-        content_piece_id: uuid.UUID,
+        content_piece_id: Optional[uuid.UUID] = None,
         iteration: int = 1,
         job_cost_so_far: float = 0.0,
     ) -> str:
