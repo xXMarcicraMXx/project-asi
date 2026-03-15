@@ -121,6 +121,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Human-readable log format",
     )
 
+    # ── write subcommand (Metis v2) ───────────────────────────────────────────
+    write_cmd = sub.add_parser(
+        "write",
+        help="Run StatusAgent + CurationAgent + NewsletterWriterAgent for one region",
+    )
+    write_cmd.add_argument(
+        "--region",
+        required=True,
+        metavar="REGION",
+        help="Region: eu | na | latam | apac | africa",
+    )
+    write_cmd.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show config and story counts — skip API calls",
+    )
+    write_cmd.add_argument(
+        "--log-plain",
+        action="store_true",
+        help="Human-readable log format",
+    )
+
     return parser
 
 
@@ -220,6 +242,85 @@ async def cmd_curate(args: argparse.Namespace) -> None:
             f"{story.title[:60]}"
         )
     print()
+
+
+async def cmd_write(args: argparse.Namespace) -> None:
+    """
+    Run collection + StatusAgent + CurationAgent + NewsletterWriterAgent
+    for one region. --dry-run shows plan without API calls.
+    """
+    from config import load_region
+    from data_sources.rss_source import MetisRSSCollector
+
+    region_id = args.region.lower()
+    print(f"\nMetis write — region: {region_id.upper()}")
+    print("-" * 60)
+
+    try:
+        region_cfg = load_region(region_id)
+        print(f"  [OK] Region: {region_cfg.display_name}")
+    except FileNotFoundError as exc:
+        print(f"  [ERR] {exc}")
+        return
+
+    print(f"  Collecting stories...")
+    try:
+        collector = MetisRSSCollector(region_id=region_id)
+        stories = await collector.collect()
+        print(f"  [OK] {len(stories)} stories collected")
+    except RuntimeError as exc:
+        print(f"  [ERR] Collection failed: {exc}")
+        return
+
+    if args.dry_run:
+        print("\n  DRY RUN — skipping API calls")
+        print(f"  StatusAgent: {min(len(stories), 50)} headlines")
+        print(f"  CurationAgent: 5-8 from {len(stories)} stories")
+        print(f"  NewsletterWriterAgent: 1 Sonnet call per selected story")
+        print("  No tokens used.\n")
+        return
+
+    from agents.curation_agent import CurationAgent
+    from agents.newsletter_writer_agent import NewsletterWriterAgent
+    from agents.status_agent import StatusAgent
+    from unittest.mock import AsyncMock, MagicMock
+
+    fake_session = AsyncMock()
+    fake_session.add = MagicMock()
+    fake_session.commit = AsyncMock()
+
+    print("\n  Running StatusAgent...")
+    status = await StatusAgent().run_brief(stories, session=fake_session)
+    print(f"  [OK] {status.daily_color} / {status.sentiment}")
+    print(f"       {status.mood_headline}")
+
+    print(f"\n  Running CurationAgent for {region_id.upper()}...")
+    curated = await CurationAgent().run_region(
+        stories,
+        region_id=region_id,
+        curation_bias=region_cfg.curation_bias,
+        session=fake_session,
+    )
+    print(f"  [OK] {len(curated)} stories selected")
+
+    print(f"\n  Running NewsletterWriterAgent ({len(curated)} stories)...")
+    writer = NewsletterWriterAgent()
+    entries = []
+    for rank, story in enumerate(curated, 1):
+        entry = await writer.run_story(
+            story,
+            rank=rank,
+            region_id=region_id,
+            daily_status=status,
+            session=fake_session,
+        )
+        entries.append(entry)
+        print(f"  [{rank}] {entry.word_count}w [{entry.category}] {entry.title[:55]}")
+
+    print(f"\n  ─── SUMMARIES ───")
+    for e in entries:
+        print(f"\n  [{e.rank}] {e.title}")
+        print(f"  {e.summary}\n")
 
 
 async def cmd_run(args: argparse.Namespace) -> None:
@@ -389,6 +490,8 @@ def main() -> None:
         asyncio.run(cmd_collect(args))
     elif args.command == "curate":
         asyncio.run(cmd_curate(args))
+    elif args.command == "write":
+        asyncio.run(cmd_write(args))
     else:
         parser.print_help()
         sys.exit(1)

@@ -116,7 +116,7 @@ class StoryEntry(BaseModel):
     title: str
     url: str | None = None
     source_name: str
-    summary: str = Field(..., min_length=10, max_length=900)  # ~150 words max in chars
+    summary: str = Field(..., min_length=10, max_length=1200)  # 150 words × ~8 chars/word max
     word_count: int = Field(..., ge=1)
     significance_score: float = Field(..., ge=0.0, le=1.0)
     raw_story_id: UUID
