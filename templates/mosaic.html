@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Metis Daily Brief">
+  <title>Metis {{ region_display }} &mdash; {{ run_date }}</title>
+  <style>
+    {{ css_vars_block }}
+    {{ base_css }}
+
+    /* mosaic: equal-weight tiles, no single hero — grouped by section */
+    .mosaic-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: var(--gap);
+    }
+
+    @media (min-width: 480px) {
+      .mosaic-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (min-width: 960px) {
+      .mosaic-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+
+    .mosaic-grid .story-card {
+      /* Equal height within a row */
+      height: 100%;
+    }
+
+    .mosaic-section {
+      margin-bottom: var(--section-gap);
+    }
+
+    .mosaic-section:last-child {
+      margin-bottom: 0;
+    }
+  </style>
+</head>
+<body>
+  <header class="masthead">
+    <div class="container">
+      <p class="masthead__pub">Metis Daily Brief</p>
+      <h1 class="masthead__region">
+        <span class="color-dot color-dot--{{ edition.daily_status.daily_color }}" aria-hidden="true"></span>
+        {{ region_display }} Edition
+      </h1>
+      <p class="masthead__date">{{ run_date.strftime("%A, %d %B %Y") }}</p>
+    </div>
+    <div class="masthead__mood">
+      <div class="container">
+        {{ edition.daily_status.mood_headline }}
+        &mdash; <em>{{ layout.mood_label }}</em>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    {% for section in layout.section_order %}
+    {% set section_stories = stories_by_section[section] %}
+    {% if section_stories %}
+    <section class="mosaic-section">
+      <div class="section-header">
+        <p class="section-header__label">{{ section }}</p>
+      </div>
+      <div class="mosaic-grid">
+        {% for story in section_stories %}
+        <article class="story-card">
+          <p class="story-card__category">{{ story.category }}</p>
+          <h2 class="story-card__title">
+            <a href="{{ safe_url(story.url) }}">{{ story.title }}</a>
+          </h2>
+          <p class="story-card__summary">{{ story.summary }}</p>
+          <p class="story-card__source">{{ story.source_name }}</p>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+    {% endfor %}
+  </main>
+
+  <footer class="container brief-footer">
+    Metis &mdash; {{ region_display }} Edition &mdash; {{ run_date.strftime("%Y-%m-%d") }}
+    &mdash; {{ edition.daily_status.sentiment }}
+  </footer>
+</body>
+</html>

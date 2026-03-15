@@ -8,7 +8,7 @@ WORKDIR /app
 
 # Install curl (healthcheck) and pip deps
 COPY requirements.txt .
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+RUN apt-get update && apt-get install -y --no-install-recommends curl rsync openssh-client \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir -r requirements.txt
 

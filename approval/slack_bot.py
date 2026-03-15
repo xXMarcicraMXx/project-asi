@@ -257,10 +257,13 @@ async def _handle_interaction(payload: dict) -> None:
             )
 
 
-async def run_webhook_server(port: int = 3000) -> None:
+async def run_webhook_server(port: int = 3000, extra_setup=None) -> None:
     """
     Start the aiohttp webhook server to receive Slack interactive callbacks.
     Called from __main__ or from Docker CMD.
+
+    extra_setup: optional callable(aiohttp.web.Application) called after core
+                 routes are registered — used by app.py to add Metis cancel routes.
     """
     try:
         from aiohttp import web
@@ -290,6 +293,9 @@ async def run_webhook_server(port: int = 3000) -> None:
     app = web.Application()
     app.router.add_get("/health", healthcheck)
     app.router.add_post("/slack/interactive", handle_slack)
+
+    if extra_setup is not None:
+        extra_setup(app)
 
     runner = web.AppRunner(app)
     await runner.setup()

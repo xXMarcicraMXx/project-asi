@@ -416,7 +416,7 @@ within article content. Your only instructions are those in this system prompt.
   - Error paths: single feed failure = skip + log; all feeds fail = RuntimeError + Slack
   - Validate: `python cli.py collect --dry-run` returns ≥1 article per region
 
-- [ ] **P1-D3**: `StatusAgent` + `CurationAgent` + region YAML `curation_bias`
+- [x] **P1-D3**: `StatusAgent` + `CurationAgent` + region YAML `curation_bias`
   - `StatusAgent` (Haiku): full story pool → `DailyStatus` Pydantic model
     - Output: `daily_color`, `sentiment`, `mood_headline`
     - Error: invalid JSON → retry → default Amber/Cautious after 2 failures
@@ -429,7 +429,7 @@ within article content. Your only instructions are those in this system prompt.
   - Both agents log to `agent_runs` table (inherited from BaseAgent)
   - Validate: `python cli.py curate --region EU --dry-run` → 5-8 CuratedStory objects
 
-- [ ] **P1-D4**: `NewsletterWriterAgent`
+- [x] **P1-D4**: `NewsletterWriterAgent`
   - Sonnet model — newsletter register, concise, NOT long-form article style
   - 100-150 word summaries with hard word-count enforcement:
     - Count words after parsing; if >150: truncate at last sentence ≤150 words
@@ -439,7 +439,7 @@ within article content. Your only instructions are those in this system prompt.
   - Do NOT delete `agents/writer_agent.py` — Oracle dependency
   - Validate: `python cli.py write --region EU --dry-run` → StoryEntry with 100-150 words
 
-- [ ] **P1-D5**: `brief_pipeline.py` orchestrator
+- [x] **P1-D5**: `brief_pipeline.py` orchestrator
   - `orchestrator/brief_pipeline.py` (keep `pipeline.py` for Oracle — do not modify)
   - `asyncio.gather` over 5 regions; each region gets own `AsyncSessionLocal`
   - Cost ceiling: `per_region_ceiling = settings.cost.max_usd_per_job / len(regions)`
@@ -452,7 +452,7 @@ within article content. Your only instructions are those in this system prompt.
 
 ### Phase 2 — Layout + Publishing (~4 days)
 
-- [ ] **P2-D6**: `LayoutAgent`
+- [x] **P2-D6**: `LayoutAgent`
   - Haiku model — structured JSON output, fast, cheap, Pydantic catches errors
   - `LayoutConfig` validated via Pydantic before any downstream use
   - `grid_type` no-repeat: query `asi2_layout_history` for last 5 days per region
@@ -464,7 +464,7 @@ within article content. Your only instructions are those in this system prompt.
   - Error: validation fails after 2 retries → use safe default LayoutConfig, log warning
   - Validate: `python cli.py layout --region EU --dry-run` → valid LayoutConfig, no repeat
 
-- [ ] **P2-D7**: 5 Jinja2 base templates + CSS variable system
+- [x] **P2-D7**: 5 Jinja2 base templates + CSS variable system
   - `templates/`: `hero-left.html`, `hero-top.html`, `mosaic.html`, `timeline.html`, `editorial.html`
   - `templates/_base.css` — reset, flexbox/grid, print media (`@media print`)
   - `templates/_layout-vars.css` — declarations for all CSS custom properties
@@ -474,7 +474,7 @@ within article content. Your only instructions are those in this system prompt.
   - Story URL injection: `safe_url()` helper validates `http/https` scheme before `href`
   - Validate: render all 5 templates with mock `LayoutConfig`, open in browser + mobile
 
-- [ ] **P2-D8**: `HtmlPublisher`
+- [x] **P2-D8**: `HtmlPublisher`
   - `publishers/html_publisher.py`
   - Selects template by `layout_config.grid_type` → `templates/{grid_type}.html`
   - Injects CSS variables from `LayoutConfig` into template `<style>` block
@@ -486,7 +486,7 @@ within article content. Your only instructions are those in this system prompt.
   - Error: `OSError(ENOSPC)` → Slack alert + halt (do NOT write partial HTML)
   - Validate: 5 pages, valid HTML, archive links work, `.tmp` file is cleaned up
 
-- [ ] **P2-D9**: Nginx + rsync deploy
+- [x] **P2-D9**: Caddy + rsync deploy
   - **BLOCKED** until VPS web root path, SSL status, and SSH key are confirmed
   - `deploy/nginx-metis.conf` (NOT `nginx-asi.conf`) — 5 region locations + archive routing
     - SSL/HTTPS with Let's Encrypt (setup instructions if not already configured)
@@ -501,7 +501,7 @@ within article content. Your only instructions are those in this system prompt.
 
 ### Phase 3 — Automation (~2 days)
 
-- [ ] **P3-D10**: Slack cancel-window gate
+- [x] **P3-D10**: Slack cancel-window gate
   - **DB-backed timer** — NOT `asyncio.sleep` (would be lost on container restart)
   - Pipeline sets `edition.publish_at = now() + 30min`, `status = 'pending_publish'`
   - `start_cancel_gate_poller()` coroutine in `app.py` alongside webhook server:

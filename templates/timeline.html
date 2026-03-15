@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Metis Daily Brief">
+  <title>Metis {{ region_display }} &mdash; {{ run_date }}</title>
+  <style>
+    {{ css_vars_block }}
+    {{ base_css }}
+
+    /* timeline: chronological vertical flow, no hero emphasis */
+    .timeline-list {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0;
+      border: 1px solid var(--color-border);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .timeline-item {
+      display: grid;
+      grid-template-columns: 3rem 1fr;
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .timeline-item:last-child {
+      border-bottom: none;
+    }
+
+    .timeline-rank {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: var(--spacing-unit) 0.5rem;
+      background-color: var(--color-primary);
+      color: var(--color-bg);
+      font-family: var(--font-heading);
+      font-size: 0.8125rem;
+      font-weight: var(--fw-label);
+      padding-top: calc(var(--spacing-unit) + 0.125rem);
+    }
+
+    .timeline-item .story-card {
+      border: none;
+      border-radius: 0;
+      background-color: var(--color-surface);
+    }
+
+    .timeline-item:nth-child(even) .story-card {
+      background-color: var(--color-bg);
+    }
+
+    .timeline-item .story-card__title {
+      font-size: 1rem;
+    }
+
+    @media (min-width: 768px) {
+      .timeline-item {
+        grid-template-columns: 4rem 1fr;
+      }
+
+      .timeline-item .story-card__title {
+        font-size: 1.0625rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="masthead">
+    <div class="container">
+      <p class="masthead__pub">Metis Daily Brief</p>
+      <h1 class="masthead__region">
+        <span class="color-dot color-dot--{{ edition.daily_status.daily_color }}" aria-hidden="true"></span>
+        {{ region_display }} Edition
+      </h1>
+      <p class="masthead__date">{{ run_date.strftime("%A, %d %B %Y") }}</p>
+    </div>
+    <div class="masthead__mood">
+      <div class="container">
+        {{ edition.daily_status.mood_headline }}
+        &mdash; <em>{{ layout.mood_label }}</em>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    {% if all_stories %}
+    <ol class="timeline-list" aria-label="Today's stories in order of significance">
+      {% for story in all_stories %}
+      <li class="timeline-item">
+        <span class="timeline-rank" aria-label="Story {{ story.rank }}">{{ story.rank }}</span>
+        <article class="story-card">
+          <p class="story-card__category">{{ story.category }}</p>
+          <h2 class="story-card__title">
+            <a href="{{ safe_url(story.url) }}">{{ story.title }}</a>
+          </h2>
+          <p class="story-card__summary">{{ story.summary }}</p>
+          <p class="story-card__source">{{ story.source_name }}</p>
+        </article>
+      </li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+  </main>
+
+  <footer class="container brief-footer">
+    Metis &mdash; {{ region_display }} Edition &mdash; {{ run_date.strftime("%Y-%m-%d") }}
+    &mdash; {{ edition.daily_status.sentiment }}
+  </footer>
+</body>
+</html>

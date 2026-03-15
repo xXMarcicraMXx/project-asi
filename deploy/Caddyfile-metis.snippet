@@ -1,0 +1,50 @@
+# ── Metis Daily Brief — Caddy config snippet ─────────────────────────────────
+#
+# HOW TO USE:
+#   1. Copy this block into your Caddyfile on the VPS (the file you edit with
+#      `nano ~/n8n-asi/Caddyfile` or wherever your Caddy config lives).
+#   2. Replace {$VPS_WEB_ROOT} with your actual path if Caddy doesn't read env vars,
+#      e.g.: root * /home/ubuntu/metis-site
+#   3. Run: caddy reload --config /path/to/Caddyfile
+#   4. Caddy will automatically obtain an SSL cert for metis.rest via Let's Encrypt.
+#
+# DIRECTORY STRUCTURE expected at VPS_WEB_ROOT:
+#   {VPS_WEB_ROOT}/
+#     eu/index.html        ← current EU edition
+#     eu/archive.html      ← EU archive listing
+#     eu/2026-03-15/       ← archived editions by date
+#     na/index.html
+#     ...
+#
+# FIRST DEPLOY: run deploy/first-deploy.sh once to create the directory structure.
+# ─────────────────────────────────────────────────────────────────────────────
+
+metis.rest {
+    # Caddy auto-HTTPS: certificate obtained automatically from Let's Encrypt.
+    # No ssl_certificate directives needed — Caddy handles it.
+
+    # Static files root
+    root * {$VPS_WEB_ROOT}
+
+    # Default: redirect bare domain to EU edition
+    redir / /eu/ 302
+
+    # Only serve the five known regions + their sub-paths
+    @known_region path_regexp region ^/(eu|na|latam|apac|africa)(/.*)?$
+    handle @known_region {
+        file_server {
+            index index.html
+        }
+    }
+
+    # Everything else → 404
+    handle {
+        respond "Not found" 404
+    }
+
+    # Access log (optional — remove if you don't want logs for static files)
+    log {
+        output file /var/log/caddy/metis.rest.log
+        format json
+    }
+}

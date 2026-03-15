@@ -1,0 +1,8 @@
+/* Auto-generated from LayoutConfig via build_template_context().
+   Included inside {% autoescape false %} blocks — values come from
+   our Python design-system mappings or Pydantic-validated hex colors only. */
+:root {
+{% for name, value in css_vars.items() %}
+  --{{ name }}: {{ value }};
+{% endfor %}
+}

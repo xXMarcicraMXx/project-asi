@@ -45,10 +45,23 @@ async def main() -> None:
         },
     )
 
+    # Start Metis cancel-gate poller as background task
+    from orchestrator.cancel_gate import register_cancel_routes, start_cancel_gate_poller
+    poller_task = asyncio.create_task(start_cancel_gate_poller())
+
     try:
         from approval.slack_bot import run_webhook_server
-        await run_webhook_server(port=port)
+
+        def _setup_metis_routes(aiohttp_app) -> None:
+            register_cancel_routes(aiohttp_app)
+
+        await run_webhook_server(port=port, extra_setup=_setup_metis_routes)
     finally:
+        poller_task.cancel()
+        try:
+            await poller_task
+        except asyncio.CancelledError:
+            pass
         scheduler.shutdown(wait=False)
         logger.info("asi_app_stopped")
 
