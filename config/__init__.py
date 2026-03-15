@@ -72,8 +72,9 @@ class LoggingConfig(BaseModel):
 
 class SchedulerConfig(BaseModel):
     cron: str
-    default_regions: list[str] = Field(..., min_length=1)
-    default_topics: list[str] = Field(..., min_length=1)
+    # Metis v2: pipeline uses METIS_REGIONS constant — these fields are optional
+    default_regions: list[str] = Field(default_factory=list)
+    default_topics: list[str] = Field(default_factory=list)
 
 
 class SettingsConfig(BaseModel):

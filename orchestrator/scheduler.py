@@ -1,9 +1,8 @@
 """
-APScheduler daily cron for Project ASI.
+APScheduler daily cron for Project Metis (ASI v2).
 
 Fires once per day at the time set in config/settings.yaml (scheduler.cron).
-Picks a topic from the default_topics list (round-robin by day-of-year),
-runs the full 4-region pipeline, and posts results to Slack for approval.
+Runs the full 5-region brief pipeline via run_brief_pipeline().
 
 Integration with app.py:
     The scheduler is started by app.py alongside the webhook server.
@@ -13,82 +12,70 @@ Manual trigger (useful for testing):
     from orchestrator.scheduler import run_scheduled_job
     import asyncio
     asyncio.run(run_scheduled_job())
+
+Dry-run mode:
+    Set DRY_RUN=1 in environment or pass dry_run=True to run_scheduled_job().
+    All pipeline logic runs. No Anthropic calls. No DB writes. No rsync.
 """
 
 from __future__ import annotations
 
 import logging
-import uuid
-from datetime import datetime, timezone
+import os
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from config import load_settings
-from db.session import AsyncSessionLocal
-from orchestrator.job_model import JobPayload
-from orchestrator.pipeline import run_pipeline
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Topic selection
-# ---------------------------------------------------------------------------
-
-def _pick_topic(topics: list[str]) -> str:
-    """Round-robin by day-of-year so each topic gets equal rotation."""
-    day_of_year = datetime.now(tz=timezone.utc).timetuple().tm_yday
-    return topics[day_of_year % len(topics)]
 
 
 # ---------------------------------------------------------------------------
 # Scheduled job
 # ---------------------------------------------------------------------------
 
-async def run_scheduled_job() -> None:
+async def run_scheduled_job(*, dry_run: bool = False) -> None:
     """
-    Execute one full pipeline run.
+    Execute one full Metis daily brief pipeline run.
     Called by APScheduler on the cron trigger, or directly for manual runs.
-    """
-    settings = load_settings()
-    topic = _pick_topic(settings.scheduler.default_topics)
-    regions = settings.scheduler.default_regions
 
-    payload = JobPayload(
-        id=uuid.uuid4(),
-        topic=topic,
-        regions=regions,
-        content_type="journal_article",
-    )
+    Args:
+        dry_run: If True, no Anthropic calls, no DB writes, no rsync.
+                 Can also be set via DRY_RUN=1 environment variable.
+    """
+    from orchestrator.brief_pipeline import run_brief_pipeline
+
+    dry_run = dry_run or os.environ.get("DRY_RUN", "").strip() == "1"
 
     logger.info(
         "scheduled_job_starting",
-        extra={
-            "job_id": str(payload.id),
-            "topic": topic,
-            "regions": regions,
-        },
+        extra={"dry_run": dry_run},
     )
 
     try:
-        async with AsyncSessionLocal() as session:
-            drafts = await run_pipeline(payload, session=session)
+        result = await run_brief_pipeline(dry_run=dry_run)
 
         logger.info(
             "scheduled_job_complete",
             extra={
-                "job_id": str(payload.id),
-                "drafts": len(drafts),
-                "topic": topic,
+                "run_id": str(result.run_id),
+                "run_status": result.run_status,
+                "total_cost_usd": result.total_cost_usd,
+                "regions_ok": [
+                    rid for rid, r in result.regions.items()
+                    if r.status == "complete"
+                ],
+                "regions_failed": [
+                    rid for rid, r in result.regions.items()
+                    if r.status == "failed"
+                ],
+                "dry_run": dry_run,
             },
         )
 
     except Exception:
-        logger.exception(
-            "scheduled_job_failed",
-            extra={"job_id": str(payload.id), "topic": topic},
-        )
+        logger.exception("scheduled_job_unhandled_error")
 
 
 # ---------------------------------------------------------------------------
@@ -110,18 +97,14 @@ def build_scheduler() -> AsyncIOScheduler:
     scheduler.add_job(
         run_scheduled_job,
         trigger=trigger,
-        id="daily_pipeline",
-        name="ASI daily pipeline",
+        id="metis_daily_pipeline",
+        name="Metis daily brief pipeline",
         replace_existing=True,
-        misfire_grace_time=600,   # allow up to 10 min late start
+        misfire_grace_time=600,  # allow up to 10 min late start
     )
 
     logger.info(
         "scheduler_configured",
-        extra={
-            "cron": settings.scheduler.cron,
-            "regions": settings.scheduler.default_regions,
-            "topics": len(settings.scheduler.default_topics),
-        },
+        extra={"cron": settings.scheduler.cron},
     )
     return scheduler

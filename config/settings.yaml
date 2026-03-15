@@ -17,10 +17,3 @@ logging:
 
 scheduler:
   cron: "0 7 * * *"
-  default_regions: [EU, LATAM, SEA, NA]
-  default_topics:
-    - "global economic outlook and central bank policy"
-    - "geopolitical tensions and trade policy implications"
-    - "artificial intelligence regulation and governance"
-    - "energy transition and climate policy economics"
-    - "emerging market debt and currency pressures"

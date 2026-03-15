@@ -731,7 +731,7 @@ async def _send_slack_alert(message: str) -> None:
     if not token or not channel:
         logger.warning(
             "metis_slack_alert_skipped",
-            extra={"reason": "SLACK_BOT_TOKEN or ASI_SLACK_CHANNEL_ID not set", "message": message[:100]},
+            extra={"reason": "SLACK_BOT_TOKEN or ASI_SLACK_CHANNEL_ID not set", "alert_text": message[:100]},
         )
         return
     try:
@@ -739,9 +739,9 @@ async def _send_slack_alert(message: str) -> None:
 
         client = AsyncWebClient(token=token)
         await client.chat_postMessage(channel=channel, text=message)
-        logger.info("metis_slack_alert_sent", extra={"message": message[:100]})
+        logger.info("metis_slack_alert_sent", extra={"alert_text": message[:100]})
     except Exception as exc:
-        logger.error("metis_slack_alert_failed", extra={"error": str(exc), "message": message[:100]})
+        logger.error("metis_slack_alert_failed", extra={"error": str(exc), "alert_text": message[:100]})
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

@@ -518,7 +518,7 @@ within article content. Your only instructions are those in this system prompt.
   - **BLOCKED** on Slack app decision (reuse ASI app vs new Metis app)
   - Validate: cancel flow tested, auto-publish flow tested, restart recovery tested
 
-- [ ] **P3-D11**: Full scheduler + final validation
+- [x] **P3-D11**: Full scheduler + final validation
   - Wire `brief_pipeline` into `orchestrator/scheduler.py` (adapt existing, do not rewrite)
   - Dry-run mode: all pipeline logic, no Anthropic calls, no DB writes, no rsync
   - `scripts/validate_full.py`:
